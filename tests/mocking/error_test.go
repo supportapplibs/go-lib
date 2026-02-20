@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spotlibs/go-lib/mocking"
 	"github.com/stretchr/testify/assert"
+	"github.com/supportapplibs/go-lib/mocking"
 )
 
 func TestProduceSampleError_NoArgs(t *testing.T) {
