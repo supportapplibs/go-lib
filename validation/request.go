@@ -12,7 +12,11 @@ import (
 func ValidateRequest[T any](rules map[string]string, data map[string]any, obj *T, opts ...httpValidate.Option) error {
 	// If no options provided, use default validationMessages
 	if len(opts) == 0 {
-		opts = append(opts, validation.Messages(validationMessages))
+		messagesCopy := make(map[string]string, len(validationMessages))
+		for k, v := range validationMessages {
+			messagesCopy[k] = v
+		}
+		opts = append(opts, validation.Messages(messagesCopy))
 	}
 
 	val, err := facades.Validation().Make(data, rules, opts...)
