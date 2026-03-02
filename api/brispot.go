@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/spotlibs/go-lib/ctx"
+	"github.com/supportapplibs/go-lib/ctx"
 )
 
 // NewHTTPClient return HTTPClient implementer that also set some metadata header

@@ -8,7 +8,7 @@ import (
 
 	"github.com/goravel/framework/facades"
 	"github.com/redis/go-redis/v9"
-	"github.com/spotlibs/go-lib/log"
+	"github.com/supportapplibs/go-lib/log"
 )
 
 var (

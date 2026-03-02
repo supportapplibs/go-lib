@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spotlibs/go-lib/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/supportapplibs/go-lib/api"
 )
 
 func TestMain(m *testing.M) {

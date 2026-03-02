@@ -88,7 +88,7 @@ func SetFromConsoleCtx(c console.Context) {
 		UserAgent:     func() string { x, _ := os.Hostname(); return x }(),
 		App:           "console",
 	}
-	facades.App().Bind("spotlibsCtx", func(app foundation.Application) (any, error) {
+	facades.App().Bind("supportapplibsCtx", func(app foundation.Application) (any, error) {
 		return context.WithValue(context.Background(), contextKey, mt), nil
 	})
 }

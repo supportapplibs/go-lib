@@ -94,7 +94,7 @@ func ErrPermission(msg ...string) error {
 	return errWithDebug(ERROR_CODE_ACCESS_PERMISSION, msg[0], http.StatusForbidden)
 }
 
-// ErrInvHeader error invalid header, this may commonly be used in spotlibs
+// ErrInvHeader error invalid header, this may commonly be used in supportapplibs
 // gateway.
 //
 // This error will set the response http code to 400 via stdresp.WithErr.

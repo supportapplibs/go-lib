@@ -62,7 +62,7 @@ type HTTPClient interface {
 	// Call send given request using HTTP, and optionally set custom timeout if
 	// provided, otherwise will use DEFAULT_TIMEOUT.
 	//
-	// This function also help setting any necessary metadata for spotlibs using
+	// This function also help setting any necessary metadata for supportapplibs using
 	// ctx pkg that also come from this lib.
 	Call(req *http.Request, timeouts ...time.Duration) (HTTPResponse, error)
 }
@@ -71,7 +71,7 @@ type HTTPClientExternal interface {
 	// Call send given request using HTTP, and optionally set custom timeout if
 	// provided, otherwise will use DEFAULT_TIMEOUT.
 	//
-	// This function also help setting any necessary metadata for spotlibs using
+	// This function also help setting any necessary metadata for supportapplibs using
 	// ctx pkg that also come from this lib.
 	Call(requestClient context.Context, req *http.Request, timeouts ...time.Duration) (HTTPResponse, error)
 }

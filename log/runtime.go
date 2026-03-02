@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/spotlibs/go-lib/ctx"
+	"github.com/supportapplibs/go-lib/ctx"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

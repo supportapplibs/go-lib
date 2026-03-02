@@ -3,7 +3,7 @@ package stderr_test
 import (
 	"testing"
 
-	"github.com/spotlibs/go-lib/stderr"
+	"github.com/supportapplibs/go-lib/stderr"
 )
 
 func TestErr(t *testing.T) {

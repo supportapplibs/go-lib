@@ -2,13 +2,14 @@ package stdresp
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/goravel/framework/facades"
-	"github.com/spotlibs/go-lib/debug"
-	"github.com/spotlibs/go-lib/security"
-	"github.com/spotlibs/go-lib/stderr"
+	"github.com/supportapplibs/go-lib/debug"
+	"github.com/supportapplibs/go-lib/security"
+	"github.com/supportapplibs/go-lib/stderr"
 )
 
 // StdOpt option signature that accept and modify Std response object.
@@ -54,11 +55,14 @@ func WithMaskedData(keysToMask []string, data any) StdOpt {
 
 // WithErr embed given error to the standard response.
 func WithErr(e error) StdOpt {
+	fmt.Println("Test:", stderr.IsStdError(e))
 	return func(s *Std) {
 		// set default response code and description
 		s.ResponseCode = stderr.ERROR_CODE_SYSTEM
 		s.ResponseDesc = "Terjadi kesalahan, mohon coba beberapa saat lagi yaa... "
 
+		fmt.Println("Error:", e)
+		fmt.Println("Test:", stderr.IsStdError(e))
 		// check if the error is created using stderr pkg
 		if stderr.IsStdError(e) {
 			// override the code and description

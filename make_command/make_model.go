@@ -5,7 +5,7 @@ import (
 	"github.com/goravel/framework/contracts/console"
 	"github.com/goravel/framework/contracts/console/command"
 	"github.com/goravel/framework/facades"
-	"github.com/spotlibs/go-lib/stubs"
+	"github.com/supportapplibs/go-lib/stubs"
 	"os"
 	"path/filepath"
 	"regexp"

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/spotlibs/go-lib/stdresp"
 	"github.com/stretchr/testify/assert"
+	"github.com/supportapplibs/go-lib/stdresp"
 )
 
 // Test helper to create a Std instance

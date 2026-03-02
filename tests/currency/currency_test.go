@@ -3,8 +3,8 @@ package currency_test
 import (
 	"testing"
 
-	"github.com/spotlibs/go-lib/currency"
 	"github.com/stretchr/testify/assert"
+	"github.com/supportapplibs/go-lib/currency"
 )
 
 func TestCurrency(t *testing.T) {

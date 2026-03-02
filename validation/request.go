@@ -5,7 +5,7 @@ import (
 	httpValidate "github.com/goravel/framework/contracts/validation"
 	"github.com/goravel/framework/facades"
 	"github.com/goravel/framework/validation"
-	"github.com/spotlibs/go-lib/stderr"
+	"github.com/supportapplibs/go-lib/stderr"
 )
 
 // ValidateRequest validate request data with given rules.

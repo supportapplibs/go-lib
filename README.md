@@ -1,11 +1,11 @@
 ![Static Badge](https://img.shields.io/badge/version-1.22-1daacd?logo=go&logoColor=1daacd)
-[![CI Status](https://github.com/spotlibs/go-lib/workflows/CI/badge.svg)](https://github.com/spotlibs/go-lib/actions)
+[![CI Status](https://github.com/supportapplibs/go-lib/workflows/CI/badge.svg)](https://github.com/supportapplibs/go-lib/actions)
 
 # Go Library
-Reusable go library that mostly implement standardization in the scope of Spotlibs team
+Reusable go library that mostly implement standardization in the scope of supportapplibs team
 
 Currently, pkg that are already considered has stable API are
-- `stderr`: standard interface for any error that may occur in the Spotlibs Team Microservices
+- `stderr`: standard interface for any error that may occur in the supportapplibs Team Microservices
 - `stdresp`: standard interface to construct standard response
 - `validation`: ease validating request for `Goravel` framework
 - `debug`: capture stack trace

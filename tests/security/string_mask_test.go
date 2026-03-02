@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/spotlibs/go-lib/security"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/supportapplibs/go-lib/security"
 )
 
 func TestEncryptDecrypt(t *testing.T) {
