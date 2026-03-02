@@ -9,8 +9,8 @@ import (
 	"github.com/goravel/framework/facades"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	spotlibsCtx "github.com/spotlibs/go-lib/ctx"
-	"github.com/spotlibs/go-lib/log"
+	supportapplibsCtx "github.com/supportapplibs/go-lib/ctx"
+	"github.com/supportapplibs/go-lib/log"
 )
 
 func ConfigureMinio(ctx context.Context, diskConfig string) *minioHelper {
@@ -53,10 +53,10 @@ func (h *minioHelper) Upload(file filesystem.File, dirpath, filename string) err
 	if h.err != nil {
 		return h.err
 	}
-	ctxSpotlibs := spotlibsCtx.Get(h.ctx)
-	identifier := ctxSpotlibs.ReqId
+	ctxsupportapplibs := supportapplibsCtx.Get(h.ctx)
+	identifier := ctxsupportapplibs.ReqId
 	if identifier == "" {
-		identifier = ctxSpotlibs.SignaturePath
+		identifier = ctxsupportapplibs.SignaturePath
 	}
 	if filename == "" {
 		filename = file.GetClientOriginalName()
@@ -69,10 +69,10 @@ func (h *minioHelper) Upload(file filesystem.File, dirpath, filename string) err
 		minio.PutObjectOptions{
 			UserMetadata: map[string]string{
 				"original-filename": file.GetClientOriginalName(),
-				"uploader-user":     ctxSpotlibs.ReqUser,
-				"uploader-name":     ctxSpotlibs.ReqNama,
+				"uploader-user":     ctxsupportapplibs.ReqUser,
+				"uploader-name":     ctxsupportapplibs.ReqNama,
 				"identifier":        identifier,
-				"traceID":           ctxSpotlibs.ReqId,
+				"traceID":           ctxsupportapplibs.ReqId,
 			},
 		},
 	)
