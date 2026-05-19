@@ -19,6 +19,8 @@ func ValidateRequest[T any](rules map[string]string, data map[string]any, obj *T
 		opts = append(opts, validation.Messages(messagesCopy))
 	}
 
+	rules = expandWildcardRules(rules, data)
+
 	val, err := facades.Validation().Make(data, rules, opts...)
 	if err != nil {
 		return stderr.ErrRuntime(err.Error())
