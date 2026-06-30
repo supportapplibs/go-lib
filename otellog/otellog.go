@@ -92,7 +92,7 @@ func (l *Logger) emit(severity otellog.Severity, m golib.Map) {
 		r.AddAttributes(otellog.String(k, fmt.Sprintf("%v", v)))
 	}
 
-	global.GetLoggerProvider().Logger(os.Getenv("OTEL_SERVICE_NAME")).Emit(ctx, r)
+	global.GetLoggerProvider().Logger(os.Getenv("APP_NAME")).Emit(ctx, r)
 }
 
 func (l *Logger) enrich(m golib.Map) golib.Map {
@@ -143,7 +143,7 @@ func TraceFunc(ctx context.Context, name string, fields ...golib.Map) (context.C
 		}
 	}
 
-	ctx, span := otel.Tracer(os.Getenv("OTEL_SERVICE_NAME")).Start(ctx, name)
+	ctx, span := otel.Tracer(os.Getenv("APP_NAME")).Start(ctx, name)
 	RuntimeCtx(ctx).Info(startMsg)
 
 	return ctx, func(errPtr *error) {
@@ -166,7 +166,7 @@ func TraceFunc(ctx context.Context, name string, fields ...golib.Map) (context.C
 //	    ...
 //	}
 func TraceDB(ctx context.Context, table, operation string) (context.Context, func(*error)) {
-	ctx, span := otel.Tracer(os.Getenv("OTEL_SERVICE_NAME")).Start(ctx, "db."+table+"."+operation,
+	ctx, span := otel.Tracer(os.Getenv("APP_NAME")).Start(ctx, "db."+table+"."+operation,
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
 

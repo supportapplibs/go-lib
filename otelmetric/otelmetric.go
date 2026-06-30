@@ -29,7 +29,7 @@ var (
 )
 
 func serviceMeter() metric.Meter {
-	return otel.Meter(os.Getenv("OTEL_SERVICE_NAME"))
+	return otel.Meter(os.Getenv("APP_NAME"))
 }
 
 // getHistogram mengambil atau membuat histogram dari cache internal.
