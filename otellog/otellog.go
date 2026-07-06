@@ -125,7 +125,7 @@ func Activity(ctx goravelhttp.Context, m golib.Map) {
 	l.emit(otellog.SeverityInfo, enriched)
 }
 
-// TraceFunc membuat span + log start/ok/error otomatis untuk satu fungsi.
+// TraceFunc membuat span + log error otomatis untuk satu fungsi.
 // Gunakan dengan named return error dan defer:
 //
 //	func (u *Usecase) MyFunc(ctx context.Context, req Req) (resp Resp, err error) {
@@ -134,25 +134,15 @@ func Activity(ctx goravelhttp.Context, m golib.Map) {
 //	    ...
 //	}
 //
-// fields opsional — dipakai untuk log start, tidak wajib diisi.
+// fields opsional, tidak wajib diisi.
 func TraceFunc(ctx context.Context, name string, fields ...golib.Map) (context.Context, func(*error)) {
-	startMsg := golib.Map{"msg": name + ": start"}
-	if len(fields) > 0 {
-		for k, v := range fields[0] {
-			startMsg[k] = v
-		}
-	}
-
 	ctx, span := otel.Tracer(os.Getenv("APP_NAME")).Start(ctx, name)
-	RuntimeCtx(ctx).Info(startMsg)
 
 	return ctx, func(errPtr *error) {
 		defer span.End()
 		if errPtr != nil && *errPtr != nil {
 			span.RecordError(*errPtr)
 			RuntimeCtx(ctx).Error(golib.Map{"msg": name + ": error", "error": (*errPtr).Error()})
-		} else {
-			RuntimeCtx(ctx).Info(golib.Map{"msg": name + ": ok"})
 		}
 	}
 }
