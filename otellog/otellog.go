@@ -5,6 +5,7 @@ package otellog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -14,6 +15,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/log/global"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -205,6 +208,21 @@ func SetDBPaginateAttrs(ctx context.Context, statement string, page, limit int, 
 		attribute.Int("db.limit", limit),
 		attribute.Int64("db.rows_returned", rowsReturned),
 	)
+}
+
+func Flush(ctx context.Context) error {
+	var errs []error
+	if tp, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); ok {
+		if err := tp.ForceFlush(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if lp, ok := global.GetLoggerProvider().(*sdklog.LoggerProvider); ok {
+		if err := lp.ForceFlush(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func EnrichMap(ctx goravelhttp.Context, m map[string]any) map[string]any {

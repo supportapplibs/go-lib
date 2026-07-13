@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 // defaultBuckets adalah bucket histogram standar dalam ms — cocok untuk API service.
@@ -116,6 +117,18 @@ func initHTTP() {
 		metric.WithDescription("Number of HTTP requests currently being processed"),
 		metric.WithUnit("{request}"),
 	)
+}
+
+// Flush forces the global MeterProvider to export any metrics still queued for its
+// next periodic collection. Required at the end of short-lived processes (artisan/CLI
+// commands, cron jobs) that call os.Exit right after their handler returns — the periodic
+// reader otherwise never gets a scheduled tick to collect+export before the process dies.
+// Pair with otellog.Flush for full observability on a one-shot command.
+func Flush(ctx context.Context) error {
+	if mp, ok := otel.GetMeterProvider().(*sdkmetric.MeterProvider); ok {
+		return mp.ForceFlush(ctx)
+	}
+	return nil
 }
 
 // RecordHTTP mencatat metrics HTTP request: total, durasi (histogram), dan concurrent aktif.
