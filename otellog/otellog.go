@@ -89,6 +89,8 @@ func (l *Logger) emit(severity otellog.Severity, m golib.Map) {
 
 	if msg, ok := m["msg"].(string); ok {
 		r.SetBody(otellog.StringValue(msg))
+	} else if msg, ok := m["message"].(string); ok {
+		r.SetBody(otellog.StringValue(msg))
 	}
 
 	for k, v := range m {
