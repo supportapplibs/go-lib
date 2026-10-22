@@ -6,6 +6,8 @@ package otelmetric
 import (
 	"context"
 	"os"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +30,37 @@ var (
 	httpDuration metric.Float64Histogram
 	httpActive   metric.Int64UpDownCounter
 )
+
+// durationMs mengubah durasi ke milidetik dalam float64 (presisi mikrodetik),
+// supaya operasi < 1ms tidak tercatat 0.
+func durationMs(d time.Duration) float64 {
+	return float64(d.Microseconds()) / 1000
+}
+
+var (
+	reUUID    = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	reNumeric = regexp.MustCompile(`^[0-9]+$`)
+	reHexID   = regexp.MustCompile(`^[0-9a-fA-F]{16,}$`)
+)
+
+// NormalizeRoute mengganti segmen path yang berupa ID (angka, UUID, hex panjang)
+// dengan placeholder ":id", supaya label http.route tidak meledak (high cardinality).
+// Contoh: /v1/users/12345/docs/550e8400-e29b-41d4-a716-446655440000 → /v1/users/:id/docs/:id
+func NormalizeRoute(path string) string {
+	if path == "" {
+		return "/"
+	}
+	segs := strings.Split(path, "/")
+	for i, seg := range segs {
+		if seg == "" {
+			continue
+		}
+		if reNumeric.MatchString(seg) || reUUID.MatchString(seg) || reHexID.MatchString(seg) {
+			segs[i] = ":id"
+		}
+	}
+	return strings.Join(segs, "/")
+}
 
 func serviceMeter() metric.Meter {
 	return otel.Meter(os.Getenv("APP_NAME"))
@@ -71,7 +104,7 @@ func RecordFunc(ctx context.Context, funcName string) func() {
 	hist := getHistogram("func.duration", "ms", "Function execution duration in milliseconds")
 	start := time.Now()
 	return func() {
-		hist.Record(ctx, float64(time.Since(start).Milliseconds()),
+		hist.Record(ctx, durationMs(time.Since(start)),
 			metric.WithAttributes(attribute.String("func.name", funcName)),
 		)
 	}
@@ -90,7 +123,7 @@ func RecordDB(ctx context.Context, table, operation string) func() {
 	hist := getHistogram("db.client.operation.duration", "ms", "Database operation duration in milliseconds")
 	start := time.Now()
 	return func() {
-		hist.Record(ctx, float64(time.Since(start).Milliseconds()),
+		hist.Record(ctx, durationMs(time.Since(start)),
 			metric.WithAttributes(
 				attribute.String("db.table", table),
 				attribute.String("db.operation", operation),
@@ -140,21 +173,41 @@ func Flush(ctx context.Context) error {
 //	    done()
 //	}
 func RecordHTTP(ctx goravelhttp.Context) func() {
+	done := StartHTTP(ctx.Context(), ctx.Request().Method(), ctx.Request().Path())
+	return func() { done(responseStatus(ctx)) }
+}
+
+// responseStatus mengambil HTTP status secara aman — Origin() bisa nil
+// (mis. handler panic sebelum response ditulis).
+func responseStatus(ctx goravelhttp.Context) int {
+	resp := ctx.Response()
+	if resp == nil {
+		return 0
+	}
+	origin := resp.Origin()
+	if origin == nil {
+		return 0
+	}
+	return origin.Status()
+}
+
+// StartHTTP adalah versi framework-agnostic dari RecordHTTP: catat request aktif
+// sekarang, lalu panggil fungsi kembalian dengan status code saat request selesai.
+// path otomatis dinormalisasi lewat NormalizeRoute.
+func StartHTTP(goCtx context.Context, method, path string) func(status int) {
 	httpOnce.Do(initHTTP)
 
-	method := ctx.Request().Method()
-	route := ctx.Request().Path()
+	route := NormalizeRoute(path)
 	start := time.Now()
 
 	activeAttrs := metric.WithAttributes(
 		attribute.String("http.method", method),
 		attribute.String("http.route", route),
 	)
-	httpActive.Add(ctx.Context(), 1, activeAttrs)
+	httpActive.Add(goCtx, 1, activeAttrs)
 
-	return func() {
-		status := ctx.Response().Origin().Status()
-		duration := float64(time.Since(start).Milliseconds())
+	return func(status int) {
+		duration := durationMs(time.Since(start))
 
 		finalAttrs := metric.WithAttributes(
 			attribute.String("http.method", method),
@@ -162,8 +215,8 @@ func RecordHTTP(ctx goravelhttp.Context) func() {
 			attribute.Int("http.status_code", status),
 		)
 
-		httpTotal.Add(ctx.Context(), 1, finalAttrs)
-		httpDuration.Record(ctx.Context(), duration, finalAttrs)
-		httpActive.Add(ctx.Context(), -1, activeAttrs)
+		httpTotal.Add(goCtx, 1, finalAttrs)
+		httpDuration.Record(goCtx, duration, finalAttrs)
+		httpActive.Add(goCtx, -1, activeAttrs)
 	}
 }

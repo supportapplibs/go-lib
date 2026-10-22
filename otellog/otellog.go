@@ -13,6 +13,7 @@ import (
 	golib "github.com/supportapplibs/go-lib/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -88,19 +89,31 @@ func (l *Logger) emit(severity otellog.Severity, m golib.Map) {
 	r.SetSeverity(severity)
 
 	if msg, ok := m["msg"].(string); ok {
-		r.SetBody(otellog.StringValue(msg))
+		r.SetBody(attribute.StringValue(msg))
 	} else if msg, ok := m["message"].(string); ok {
-		r.SetBody(otellog.StringValue(msg))
+		r.SetBody(attribute.StringValue(msg))
 	}
 
 	for k, v := range m {
-		r.AddAttributes(otellog.String(k, fmt.Sprintf("%v", v)))
+		r.AddAttributes(attribute.String(k, fmt.Sprintf("%v", v)))
 	}
 
 	global.GetLoggerProvider().Logger(os.Getenv("APP_NAME")).Emit(ctx, r)
 }
 
-func (l *Logger) enrich(m golib.Map) golib.Map {
+func (l *Logger) enrich(src golib.Map) golib.Map {
+	// Salin dulu supaya map milik caller tidak ikut termodifikasi
+	// (caller sering memakai ulang map yang sama untuk beberapa log call).
+	// Field sensitif (password, token, nik, norek, ...) di-mask di sini sehingga
+	// tidak pernah sampai ke runtime.log maupun OTEL collector.
+	m := make(golib.Map, len(src)+2)
+	for k, v := range src {
+		if IsSensitiveKey(k) {
+			m[k] = MaskedValue
+		} else {
+			m[k] = MaskValue(v)
+		}
+	}
 	// auto-merge request base fields dari context — field eksplisit di m tetap prioritas
 	if l.ctx != nil {
 		if base, ok := l.ctx.Value(requestFieldsKey).(golib.Map); ok {
@@ -146,7 +159,7 @@ func TraceFunc(ctx context.Context, name string, fields ...golib.Map) (context.C
 	return ctx, func(errPtr *error) {
 		defer span.End()
 		if errPtr != nil && *errPtr != nil {
-			span.RecordError(*errPtr)
+			markSpanError(span, *errPtr)
 			RuntimeCtx(ctx).Error(golib.Map{"msg": name + ": error", "error": (*errPtr).Error()})
 		}
 	}
@@ -168,9 +181,20 @@ func TraceDB(ctx context.Context, table, operation string) (context.Context, fun
 	return ctx, func(errPtr *error) {
 		defer span.End()
 		if errPtr != nil && *errPtr != nil {
-			span.RecordError(*errPtr)
+			markSpanError(span, *errPtr)
 		}
 	}
+}
+
+// markSpanError mencatat error dan menandai span berstatus Error. err.Error()
+// hanya dipanggil bila span benar-benar direkam (OTEL aktif & ter-sample) —
+// sebagian tipe error (mis. go-lib stderr) membaca config Goravel di Error().
+func markSpanError(span trace.Span, err error) {
+	if !span.IsRecording() {
+		return
+	}
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
 }
 
 // GoContext mengambil enriched Go context (dengan OTEL span) dari goravelhttp.Context.
