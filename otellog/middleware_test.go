@@ -227,3 +227,57 @@ func TestServerMiddleware_SkipPath(t *testing.T) {
 		t.Fatalf("skipped path must not create span, got %d", n)
 	}
 }
+
+func TestServerMiddleware_BodyFieldsOnSpanActivityAndHandlerLogs(t *testing.T) {
+	exp.reset()
+	logExp.reset()
+
+	var ctx *mockhttp.Context
+	ctx = newCtx(t, fakeReq{
+		method: "POST", path: "/v1/order/biaya", status: 200,
+		body: map[string]any{
+			"refno":          "BY-1", // refno order_biaya
+			"refnoOrder":     "PL-9", // = trx_order_notaris.refno
+			"refno_prakarsa": "PR-3",
+			"orderId":        12345,
+			"nik":            "3201",
+			"list":           []any{"x"}, // non-skalar → dilewati
+		},
+		resp: `{"responseCode":"00"}`,
+		next: func() { RuntimeCtx(GoContext(ctx)).Info(map[string]any{"msg": "in handler"}) },
+	})
+
+	ServerMiddleware(WithBodyFields(
+		"refno", "refnoPrakarsa:refno_prakarsa", "refnoOrder:refno_order",
+		"orderId:order_id", "nik", "list", "missing",
+	))(ctx)
+
+	spans := exp.reset()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	s := spans[0]
+	for k, want := range map[string]string{
+		"refno": "BY-1", "refno_order": "PL-9", "refno_prakarsa": "PR-3", "order_id": "12345",
+	} {
+		if got := strAttr(s, k); got != want {
+			t.Errorf("span attr %s = %q, want %q", k, got, want)
+		}
+	}
+	for _, k := range []string{"nik", "list", "missing"} {
+		if strAttr(s, k) != "" {
+			t.Errorf("span attr %s must not be set", k)
+		}
+	}
+
+	recs := logExp.reset()
+	if len(recs) != 2 {
+		t.Fatalf("expected handler log + activity log, got %d", len(recs))
+	}
+	for _, r := range recs {
+		a := attrs(r)
+		if a["refno"] != "BY-1" || a["refno_order"] != "PL-9" || a["refno_prakarsa"] != "PR-3" || a["order_id"] != "12345" {
+			t.Errorf("log %q missing business fields: %v", a["msg"], a)
+		}
+	}
+}

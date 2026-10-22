@@ -31,7 +31,21 @@ const requestFieldsKey contextKey = "otelRequestFields"
 // WithRequestFields menyimpan field request ke dalam Go context.
 // Field ini otomatis di-merge ke setiap log call yang menggunakan context tersebut,
 // tanpa perlu ditulis ulang di setiap Info/Warning/Error.
+//
+// Field yang sudah ada di context digabung (key yang sama ditimpa oleh fields);
+// map milik context sebelumnya tidak dimodifikasi. Untuk field bisnis yang juga
+// perlu muncul sebagai attribute span, pakai AddFields.
 func WithRequestFields(ctx context.Context, fields golib.Map) context.Context {
+	if base, ok := ctx.Value(requestFieldsKey).(golib.Map); ok && len(base) > 0 {
+		merged := make(golib.Map, len(base)+len(fields))
+		for k, v := range base {
+			merged[k] = v
+		}
+		for k, v := range fields {
+			merged[k] = v
+		}
+		fields = merged
+	}
 	return context.WithValue(ctx, requestFieldsKey, fields)
 }
 
@@ -139,7 +153,9 @@ func (l *Logger) enrich(src golib.Map) golib.Map {
 // Use in middleware after calling Next() to capture full request/response with real trace.id.
 func Activity(ctx goravelhttp.Context, m golib.Map) {
 	span, _ := ctx.Value(spanKey).(trace.Span)
-	l := &Logger{span: span}
+	// Pakai context ber-span supaya request fields (AddFields / WithBodyFields)
+	// ikut digabung ke activity log.
+	l := &Logger{span: span, ctx: GoContext(ctx)}
 	enriched := l.enrich(m)
 	l.emit(otellog.SeverityInfo, enriched)
 }
@@ -154,9 +170,11 @@ func Activity(ctx goravelhttp.Context, m golib.Map) {
 //	    ...
 //	}
 //
-// fields opsional, tidak wajib diisi.
+// fields opsional: dipasang sebagai attribute span dan digabung ke setiap log
+// yang memakai ctx hasil kembalian (termasuk log error dari done), mis.
+// log.Map{"refno": req.Refno}. Nilai sensitif di-mask, nilai kosong dilewati.
 func TraceFunc(ctx context.Context, name string, fields ...golib.Map) (context.Context, func(*error)) {
-	return traceFunc(ctx, name)
+	return traceFunc(ctx, name, fields)
 }
 
 // Trace sama dengan TraceFunc, tetapi nama span diambil otomatis dari fungsi
@@ -176,11 +194,14 @@ func TraceFunc(ctx context.Context, name string, fields ...golib.Map) (context.C
 // (mis. helper startSpan di controller) pakai TraceFunc(ctx, CallerName(1)).
 // Akronim pada nama struct (glDebitUsecase → GLDebitUsecase) diatur via RegisterTypeName.
 func Trace(ctx context.Context, fields ...golib.Map) (context.Context, func(*error)) {
-	return traceFunc(ctx, funcname.Caller(1))
+	return traceFunc(ctx, funcname.Caller(1), fields)
 }
 
-func traceFunc(ctx context.Context, name string) (context.Context, func(*error)) {
+func traceFunc(ctx context.Context, name string, fields []golib.Map) (context.Context, func(*error)) {
 	ctx, span := otel.Tracer(os.Getenv("APP_NAME")).Start(ctx, name)
+	// fields → attribute span + request fields di ctx (ikut ke log error di bawah
+	// dan ke log lain yang memakai ctx ini).
+	ctx = AddFields(ctx, fields...)
 
 	return ctx, func(errPtr *error) {
 		defer span.End()

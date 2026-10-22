@@ -239,3 +239,80 @@ func TestTraceDB_ExplicitNameKeepsLegacyFormat(t *testing.T) {
 		t.Fatalf("legacy TraceDB name changed: %+v", s)
 	}
 }
+
+func strAttr(s sdktrace.ReadOnlySpan, key string) string {
+	for _, kv := range s.Attributes() {
+		if string(kv.Key) == key {
+			return kv.Value.AsString()
+		}
+	}
+	return ""
+}
+
+func TestTraceFunc_FieldsBecomeAttributesAndReachErrorLog(t *testing.T) {
+	exp.reset()
+	logExp.reset()
+	refno := "PL2606NYB1"
+	err := func() (err error) {
+		_, done := TraceFunc(offCtx(), "WithFields", golib.Map{
+			"refno":        refno,
+			"refno_order":  &refno, // pointer ke string harus di-deref
+			"norekNotaris": "0101", // sensitif → di-mask
+			"empty":        "",     // dilewati
+			"nil":          nil,    // dilewati
+		})
+		defer done(&err)
+		return errors.New("data tidak ditemukan")
+	}()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	spans := exp.reset()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	s := spans[0]
+	if strAttr(s, "refno") != refno || strAttr(s, "refno_order") != refno {
+		t.Fatalf("refno attributes missing: %v", s.Attributes())
+	}
+	if strAttr(s, "norekNotaris") != MaskedValue {
+		t.Fatalf("sensitive field must be masked, got %q", strAttr(s, "norekNotaris"))
+	}
+	if strAttr(s, "empty") != "" || strAttr(s, "nil") != "" {
+		t.Fatalf("empty/nil fields must be skipped: %v", s.Attributes())
+	}
+
+	recs := logExp.reset()
+	if len(recs) != 1 {
+		t.Fatalf("expected 1 error log, got %d", len(recs))
+	}
+	if a := attrs(recs[0]); a["refno"] != refno || a["error"] != "data tidak ditemukan" {
+		t.Fatalf("error log must carry fields: %v", a)
+	}
+}
+
+func TestTrace_FieldsMergeWithParentFields(t *testing.T) {
+	exp.reset()
+	logExp.reset()
+	parent := WithRequestFields(offCtx(), golib.Map{"order_id": "O-1", "refno": "old"})
+	func() (err error) {
+		ctx, done := Trace(parent, golib.Map{"refno": "new"})
+		defer done(&err)
+		RuntimeCtx(ctx).Info(golib.Map{"msg": "hello"})
+		return nil
+	}()
+
+	recs := logExp.reset()
+	if len(recs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(recs))
+	}
+	a := attrs(recs[0])
+	if a["order_id"] != "O-1" || a["refno"] != "new" {
+		t.Fatalf("fields not merged (child wins): %v", a)
+	}
+	// ctx induk tidak boleh berubah
+	if got := parent.Value(requestFieldsKey).(golib.Map)["refno"]; got != "old" {
+		t.Fatalf("parent fields mutated: %v", got)
+	}
+}

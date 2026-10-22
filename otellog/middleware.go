@@ -24,6 +24,7 @@ type middlewareConfig struct {
 	maxBodyBytes  int
 	activityLog   bool
 	metrics       bool
+	bodyFields    []bodyField
 }
 
 // MiddlewareOption mengatur perilaku ServerMiddleware.
@@ -62,6 +63,23 @@ func WithActivityLog(enabled bool) MiddlewareOption {
 // WithMetrics menyalakan/mematikan HTTP metrics (otelmetric.RecordHTTP). Default true.
 func WithMetrics(enabled bool) MiddlewareOption {
 	return func(c *middlewareConfig) { c.metrics = enabled }
+}
+
+// WithBodyFields mengambil field top-level dari request body (JSON/form) dan
+// menjadikannya field pencarian: attribute span SERVER, field di log activity,
+// dan request fields yang ikut ke semua log dalam request ini (otellog.Runtime /
+// RuntimeCtx) serta ke span/log turunannya lewat GoContext.
+//
+// Tiap spesifikasi berbentuk "key" atau "key:nama_field". Key dicocokkan tanpa
+// peduli huruf besar/kecil dan tanda '_', '-', '.', jadi "refnoOrder" cocok dengan
+// "refno_order". Nilai kosong, non-skalar, atau ber-key sensitif dilewati.
+//
+//	otellog.WithBodyFields("refno", "refnoPrakarsa:refno_prakarsa", "refnoOrder:refno_order", "orderId:order_id")
+//
+// Field yang baru diketahui setelah handler berjalan (mis. hasil query) ditambahkan
+// dengan otellog.AddFields.
+func WithBodyFields(specs ...string) MiddlewareOption {
+	return func(c *middlewareConfig) { c.bodyFields = append(c.bodyFields, parseBodyFields(specs)...) }
 }
 
 // ServerMiddleware menggantikan pasangan middleware OtelMetrics + OtelActivity dan
@@ -121,6 +139,9 @@ func ServerMiddleware(opts ...MiddlewareOption) goravelhttp.Middleware {
 				attribute.String("http.target", path),
 			),
 		)
+		if len(cfg.bodyFields) > 0 {
+			goCtx = AddFields(goCtx, extractBodyFields(req.All(), cfg.bodyFields))
+		}
 		ctx.WithValue(spanKey, span)
 		ctx.WithValue(otelContextKey, goCtx)
 
