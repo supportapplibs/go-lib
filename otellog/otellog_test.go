@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // memExporter menyimpan span yang sudah selesai di memory untuk assertion.
@@ -148,5 +149,93 @@ func TestEnrich_DoesNotMutateCallerMap(t *testing.T) {
 	}
 	if out["trace.id"] != span.SpanContext().TraceID().String() {
 		t.Fatalf("trace.id missing: %+v", out)
+	}
+}
+
+type autoNameUsecase struct{}
+
+func (u *autoNameUsecase) CreateThing(ctx context.Context) (err error) {
+	_, done := Trace(ctx)
+	defer done(&err)
+	return nil
+}
+
+func (u *autoNameUsecase) WithClosure(ctx context.Context) (err error) {
+	func() {
+		_, done := TraceDBAuto(ctx, "mst_thing", "SELECT") // closure → tetap nama method
+		done(nil)
+	}()
+	return nil
+}
+
+type autoNameRepository struct{}
+
+func (r autoNameRepository) GetByID(ctx context.Context) (err error) {
+	_, done := TraceDBAuto(ctx, "mst_thing", "SELECT")
+	defer done(&err)
+	return nil
+}
+
+func wrapper(ctx context.Context) string { return CallerName(1) }
+
+func (u *autoNameUsecase) ViaWrapper(ctx context.Context) string { return wrapper(ctx) }
+
+type glDebitThing struct{}
+
+func (g *glDebitThing) Run(ctx context.Context) (err error) {
+	_, done := Trace(ctx)
+	defer done(&err)
+	return nil
+}
+
+func TestTrace_AutoName(t *testing.T) {
+	exp.reset()
+	u := &autoNameUsecase{}
+	_ = u.CreateThing(offCtx())
+	_ = autoNameRepository{}.GetByID(offCtx())
+	_ = u.WithClosure(offCtx())
+
+	RegisterTypeName("glDebitThing", "GLDebitThing")
+	_ = (&glDebitThing{}).Run(offCtx())
+
+	spans := exp.reset()
+	want := []string{
+		"AutoNameUsecase.CreateThing",
+		"AutoNameRepository.GetByID",
+		"AutoNameUsecase.WithClosure",
+		"GLDebitThing.Run",
+	}
+	if len(spans) != len(want) {
+		t.Fatalf("expected %d spans, got %d", len(want), len(spans))
+	}
+	for i, w := range want {
+		if spans[i].Name() != w {
+			t.Errorf("span %d: got %q, want %q", i, spans[i].Name(), w)
+		}
+	}
+	// TraceDBAuto: kind CLIENT + attribute db.table/db.operation
+	db := spans[1]
+	if db.SpanKind() != trace.SpanKindClient {
+		t.Fatalf("db span kind = %v", db.SpanKind())
+	}
+	got := map[string]string{}
+	for _, kv := range db.Attributes() {
+		got[string(kv.Key)] = kv.Value.AsString()
+	}
+	if got["db.table"] != "mst_thing" || got["db.operation"] != "SELECT" {
+		t.Fatalf("db attrs missing: %v", got)
+	}
+
+	if n := u.ViaWrapper(offCtx()); n != "AutoNameUsecase.ViaWrapper" {
+		t.Fatalf("CallerName(1) from wrapper = %q", n)
+	}
+}
+
+func TestTraceDB_ExplicitNameKeepsLegacyFormat(t *testing.T) {
+	exp.reset()
+	_, done := TraceDB(offCtx(), "users", "UPDATE")
+	done(nil)
+	if s := exp.reset(); len(s) != 1 || s[0].Name() != "db.users.UPDATE" {
+		t.Fatalf("legacy TraceDB name changed: %+v", s)
 	}
 }

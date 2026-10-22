@@ -88,3 +88,24 @@ func TestRecordFunc_RecordsHistogram(t *testing.T) {
 		t.Fatalf("func.duration not recorded: %+v", h)
 	}
 }
+
+type autoMetricUsecase struct{}
+
+func (u *autoMetricUsecase) DoWork(ctx context.Context) {
+	defer Record(ctx)()
+}
+
+func TestRecord_AutoFuncName(t *testing.T) {
+	(&autoMetricUsecase{}).DoWork(context.Background())
+
+	h, ok := collect(t)["func.duration"].Data.(metricdata.Histogram[float64])
+	if !ok {
+		t.Fatal("func.duration not recorded")
+	}
+	for _, dp := range h.DataPoints {
+		if v, _ := dp.Attributes.Value(attribute.Key("func.name")); v.AsString() == "AutoMetricUsecase.DoWork" {
+			return
+		}
+	}
+	t.Fatalf("func.name AutoMetricUsecase.DoWork not found: %+v", h.DataPoints)
+}

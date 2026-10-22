@@ -12,6 +12,7 @@ import (
 	"time"
 
 	goravelhttp "github.com/goravel/framework/contracts/http"
+	"github.com/supportapplibs/go-lib/internal/funcname"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -108,6 +109,15 @@ func RecordFunc(ctx context.Context, funcName string) func() {
 			metric.WithAttributes(attribute.String("func.name", funcName)),
 		)
 	}
+}
+
+// Record sama dengan RecordFunc, tetapi label func.name diambil otomatis dari
+// fungsi pemanggil ("<Struct>.<Func>"), sama dengan nama span otellog.Trace.
+// Harus dipanggil langsung di fungsi yang diukur:
+//
+//	defer otelmetric.Record(ctx)()
+func Record(ctx context.Context) func() {
+	return RecordFunc(ctx, funcname.Caller(1))
 }
 
 // RecordDB mencatat durasi operasi database sebagai histogram.

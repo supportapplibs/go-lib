@@ -10,6 +10,7 @@ import (
 	"os"
 
 	goravelhttp "github.com/goravel/framework/contracts/http"
+	"github.com/supportapplibs/go-lib/internal/funcname"
 	golib "github.com/supportapplibs/go-lib/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -143,17 +144,42 @@ func Activity(ctx goravelhttp.Context, m golib.Map) {
 	l.emit(otellog.SeverityInfo, enriched)
 }
 
-// TraceFunc membuat span + log error otomatis untuk satu fungsi.
+// TraceFunc membuat span + log error otomatis untuk satu fungsi, dengan nama
+// span eksplisit. Untuk nama otomatis "<Struct>.<Func>" pakai Trace.
 // Gunakan dengan named return error dan defer:
 //
 //	func (u *Usecase) MyFunc(ctx context.Context, req Req) (resp Resp, err error) {
-//	    ctx, done := otellog.TraceFunc(ctx, "MyFunc", log.Map{"key": val})
+//	    ctx, done := otellog.TraceFunc(ctx, "Usecase.MyFunc", log.Map{"key": val})
 //	    defer done(&err)
 //	    ...
 //	}
 //
 // fields opsional, tidak wajib diisi.
 func TraceFunc(ctx context.Context, name string, fields ...golib.Map) (context.Context, func(*error)) {
+	return traceFunc(ctx, name)
+}
+
+// Trace sama dengan TraceFunc, tetapi nama span diambil otomatis dari fungsi
+// pemanggil dengan format "<Struct>.<Func>" (atau "<pkg>.<Func>" untuk fungsi
+// tanpa receiver). Contoh: method (*orderNotarisUsecase).CreateOrderNotaris →
+// "OrderNotarisUsecase.CreateOrderNotaris". Closure (.func1) diabaikan sehingga
+// nama tetap nama method yang membungkusnya.
+//
+//	func (u *orderNotarisUsecase) CreateOrderNotaris(ctx context.Context, req Req) (res Res, err error) {
+//	    ctx, done := otellog.Trace(ctx)
+//	    defer done(&err)
+//	    defer otelmetric.Record(ctx)()
+//	    ...
+//	}
+//
+// Harus dipanggil LANGSUNG dari fungsi yang ingin di-trace. Untuk wrapper
+// (mis. helper startSpan di controller) pakai TraceFunc(ctx, CallerName(1)).
+// Akronim pada nama struct (glDebitUsecase → GLDebitUsecase) diatur via RegisterTypeName.
+func Trace(ctx context.Context, fields ...golib.Map) (context.Context, func(*error)) {
+	return traceFunc(ctx, funcname.Caller(1))
+}
+
+func traceFunc(ctx context.Context, name string) (context.Context, func(*error)) {
 	ctx, span := otel.Tracer(os.Getenv("APP_NAME")).Start(ctx, name)
 
 	return ctx, func(errPtr *error) {
@@ -165,7 +191,8 @@ func TraceFunc(ctx context.Context, name string, fields ...golib.Map) (context.C
 	}
 }
 
-// TraceDB membuat DB span untuk operasi query di repository.
+// TraceDB membuat DB span (kind CLIENT) bernama "db.<table>.<operation>".
+// Untuk nama otomatis "<Repository>.<Func>" pakai TraceDBAuto.
 // Gunakan dengan named return error dan defer:
 //
 //	func (r *Repo) GetList(ctx context.Context, ...) (result []Model, err error) {
@@ -174,8 +201,27 @@ func TraceFunc(ctx context.Context, name string, fields ...golib.Map) (context.C
 //	    ...
 //	}
 func TraceDB(ctx context.Context, table, operation string) (context.Context, func(*error)) {
-	ctx, span := otel.Tracer(os.Getenv("APP_NAME")).Start(ctx, "db."+table+"."+operation,
+	return traceDB(ctx, "db."+table+"."+operation, table, operation)
+}
+
+// TraceDBAuto sama dengan TraceDB, tetapi nama span diambil otomatis dari fungsi
+// pemanggil, mis. (*orderNotarisRepository).GetListOrderNotaris →
+// "OrderNotarisRepository.GetListOrderNotaris". Tabel & operasi tetap tersimpan
+// sebagai attribute db.table / db.operation.
+//
+//	ctx, done := otellog.TraceDBAuto(ctx, constants.TableOrderNotaris, "SELECT")
+//	defer done(&err)
+func TraceDBAuto(ctx context.Context, table, operation string) (context.Context, func(*error)) {
+	return traceDB(ctx, funcname.Caller(1), table, operation)
+}
+
+func traceDB(ctx context.Context, name, table, operation string) (context.Context, func(*error)) {
+	ctx, span := otel.Tracer(os.Getenv("APP_NAME")).Start(ctx, name,
 		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.table", table),
+			attribute.String("db.operation", operation),
+		),
 	)
 
 	return ctx, func(errPtr *error) {
@@ -184,6 +230,25 @@ func TraceDB(ctx context.Context, table, operation string) (context.Context, fun
 			markSpanError(span, *errPtr)
 		}
 	}
+}
+
+// CallerName mengembalikan nama "<Struct>.<Func>" fungsi pada kedalaman stack
+// skip (0 = fungsi yang memanggil CallerName, 1 = pemanggilnya, dst.). Untuk
+// helper/wrapper span sendiri:
+//
+//	func startSpan(ctx goravelhttp.Context) (context.Context, trace.Span) {
+//	    return otel.Tracer(...).Start(otellog.GoContext(ctx), otellog.CallerName(1))
+//	}
+func CallerName(skip int) string {
+	return funcname.Caller(skip + 1)
+}
+
+// RegisterTypeName mengatur nama tampil tipe receiver untuk Trace, TraceDBAuto,
+// CallerName, dan otelmetric.Record — untuk akronim yang tidak bisa ditebak:
+//
+//	func init() { otellog.RegisterTypeName("glDebitUsecase", "GLDebitUsecase") }
+func RegisterTypeName(goName, display string) {
+	funcname.RegisterTypeName(goName, display)
 }
 
 // markSpanError mencatat error dan menandai span berstatus Error. err.Error()
