@@ -243,6 +243,7 @@ func traceDB(ctx context.Context, name, table, operation string) (context.Contex
 			attribute.String("db.table", table),
 			attribute.String("db.operation", operation),
 		),
+		trace.WithAttributes(dbSystemAttrs()...),
 	)
 
 	return ctx, func(errPtr *error) {

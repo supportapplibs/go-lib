@@ -316,3 +316,57 @@ func TestTrace_FieldsMergeWithParentFields(t *testing.T) {
 		t.Fatalf("parent fields mutated: %v", got)
 	}
 }
+
+func TestNormalizeDBSystem(t *testing.T) {
+	cases := map[string]string{
+		"": "", "postgresql": "postgresql", "postgres": "postgresql", "PgSQL": "postgresql",
+		"mysql": "mysql", "mariadb": "mariadb", "sqlserver": "mssql", "SQLite": "sqlite",
+	}
+	for in, want := range cases {
+		if got := normalizeDBSystem(in); got != want {
+			t.Errorf("normalizeDBSystem(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestTraceDB_SetsDBSystemFromEnvAndOverride(t *testing.T) {
+	t.Setenv("DB_CONNECTION", "postgresql")
+	SetDBSystem("")
+	exp.reset()
+	func() (err error) {
+		_, done := TraceDB(offCtx(), "mst_x", "SELECT")
+		defer done(&err)
+		return nil
+	}()
+	spans := exp.reset()
+	if len(spans) != 1 || strAttr(spans[0], "db.system") != "postgresql" {
+		t.Fatalf("db.system from env missing: %+v", spans)
+	}
+
+	SetDBSystem("mysql")
+	t.Cleanup(func() { SetDBSystem("") })
+	func() (err error) {
+		_, done := TraceDB(offCtx(), "mst_x", "SELECT")
+		defer done(&err)
+		return nil
+	}()
+	spans = exp.reset()
+	if len(spans) != 1 || strAttr(spans[0], "db.system") != "mysql" {
+		t.Fatalf("override must win over env: %+v", spans)
+	}
+}
+
+func TestTraceDB_NoDBSystemWhenUnknown(t *testing.T) {
+	t.Setenv("DB_CONNECTION", "")
+	SetDBSystem("")
+	exp.reset()
+	func() (err error) {
+		_, done := TraceDB(offCtx(), "mst_x", "SELECT")
+		defer done(&err)
+		return nil
+	}()
+	spans := exp.reset()
+	if len(spans) != 1 || strAttr(spans[0], "db.system") != "" {
+		t.Fatalf("db.system must be omitted when undetermined: %+v", spans)
+	}
+}
