@@ -115,7 +115,7 @@ func TestRecordDispatchFailure_LogEventAndCounter(t *testing.T) {
 	var err error
 	ctx, done := otellog.TraceFunc(offCtx(), "Approval")
 	RecordDispatchFailure(ctx, "DispatchTransferGLDebit", ReasonError, errors.New("redis down"),
-		golib.Map{"order_id": "O-1", "norekNotaris": "0101"})
+		golib.Map{"order_id": "O-1", "accessToken": "tok"})
 	done(&err)
 
 	// span: event ada, status TIDAK Error
@@ -137,8 +137,8 @@ func TestRecordDispatchFailure_LogEventAndCounter(t *testing.T) {
 			a["error"] != "redis down" || a["order_id"] != "O-1" {
 			t.Fatalf("unexpected event attrs: %v", a)
 		}
-		if a["norekNotaris"] != otellog.MaskedValue {
-			t.Fatalf("sensitive field must be masked in event, got %q", a["norekNotaris"])
+		if a["accessToken"] != otellog.MaskedValue {
+			t.Fatalf("credential must be masked in event, got %q", a["accessToken"])
 		}
 	}
 	if !found {

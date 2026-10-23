@@ -9,9 +9,8 @@ import (
 func TestIsSensitiveKey(t *testing.T) {
 	sensitive := []string{
 		"password", "Password", "newPassword", "user_password", "pin", "PIN", "otp", "otpCode",
-		"nik", "NIK", "nikDebitur", "nik_debitur", "norekNotaris", "norek_notaris",
 		"Authorization", "X-Api-Key", "x-signature", "accessToken", "refresh_token", "clientSecret",
-		"noRekening", "nomor_rekening", "cvv",
+		"cvv", "cardNumber", "pinBlock",
 	}
 	for _, k := range sensitive {
 		if !IsSensitiveKey(k) {
@@ -21,6 +20,9 @@ func TestIsSensitiveKey(t *testing.T) {
 	safe := []string{
 		"pinjaman", "jenisPinjaman", "teknik", "unik", "orderId", "trace.id", "span.id",
 		"requestID", "deviceID", "identifier", "msg", "message", "responseCode", "nama",
+		// data pengguna: sengaja tidak di-mask
+		"nik", "nikDebitur", "ktp", "noKtp", "npwp", "norekNotaris", "noRekening", "nomor_rekening",
+		"rekeningPinjaman", "accountNo", "cif",
 	}
 	for _, k := range safe {
 		if IsSensitiveKey(k) {
@@ -44,8 +46,9 @@ func TestMaskValue_NestedAndImmutable(t *testing.T) {
 		"username": "budi",
 		"password": "rahasia",
 		"data": map[string]any{
-			"nikDebitur": "3201000000000001",
-			"items":      []any{map[string]any{"norekNotaris": "0101", "nominal": 1000}},
+			"nikDebitur":  "3201000000000001",
+			"accessToken": "tok",
+			"items":       []any{map[string]any{"clientSecret": "s3", "norekNotaris": "0101", "nominal": 1000}},
 		},
 		"log": golib.Map{"token": "abc", "ok": true},
 	}
@@ -55,24 +58,24 @@ func TestMaskValue_NestedAndImmutable(t *testing.T) {
 		t.Fatalf("top-level mask wrong: %+v", out)
 	}
 	data := out["data"].(map[string]any)
-	if data["nikDebitur"] != MaskedValue {
-		t.Fatalf("nested map not masked: %+v", data)
+	if data["accessToken"] != MaskedValue || data["nikDebitur"] != "3201000000000001" {
+		t.Fatalf("nested map: credential must be masked, user data kept: %+v", data)
 	}
 	item := data["items"].([]any)[0].(map[string]any)
-	if item["norekNotaris"] != MaskedValue || item["nominal"] != 1000 {
+	if item["clientSecret"] != MaskedValue || item["norekNotaris"] != "0101" || item["nominal"] != 1000 {
 		t.Fatalf("slice item mask wrong: %+v", item)
 	}
 	if lg := out["log"].(golib.Map); lg["token"] != MaskedValue || lg["ok"] != true {
 		t.Fatalf("golib.Map not masked: %+v", lg)
 	}
-	if in["password"] != "rahasia" || in["data"].(map[string]any)["nikDebitur"] != "3201000000000001" {
+	if in["password"] != "rahasia" || in["data"].(map[string]any)["accessToken"] != "tok" {
 		t.Fatal("input was mutated")
 	}
 }
 
 func TestMaskJSON(t *testing.T) {
-	got := MaskJSON([]byte(`{"responseCode":"00","data":{"nik":"123","nama":"Budi"}}`), 0)
-	want := `{"data":{"nama":"Budi","nik":"***"},"responseCode":"00"}`
+	got := MaskJSON([]byte(`{"responseCode":"00","data":{"nik":"123","nama":"Budi","token":"abc"}}`), 0)
+	want := `{"data":{"nama":"Budi","nik":"123","token":"***"},"responseCode":"00"}`
 	if got != want {
 		t.Fatalf("got %s, want %s", got, want)
 	}

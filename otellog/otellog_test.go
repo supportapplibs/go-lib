@@ -256,10 +256,11 @@ func TestTraceFunc_FieldsBecomeAttributesAndReachErrorLog(t *testing.T) {
 	err := func() (err error) {
 		_, done := TraceFunc(offCtx(), "WithFields", golib.Map{
 			"refno":        refno,
-			"refno_order":  &refno, // pointer ke string harus di-deref
-			"norekNotaris": "0101", // sensitif → di-mask
-			"empty":        "",     // dilewati
-			"nil":          nil,    // dilewati
+			"refno_order":  &refno,    // pointer ke string harus di-deref
+			"password":     "rahasia", // kredensial → di-mask
+			"norekNotaris": "0101",    // data pengguna → apa adanya
+			"empty":        "",        // dilewati
+			"nil":          nil,       // dilewati
 		})
 		defer done(&err)
 		return errors.New("data tidak ditemukan")
@@ -276,8 +277,11 @@ func TestTraceFunc_FieldsBecomeAttributesAndReachErrorLog(t *testing.T) {
 	if strAttr(s, "refno") != refno || strAttr(s, "refno_order") != refno {
 		t.Fatalf("refno attributes missing: %v", s.Attributes())
 	}
-	if strAttr(s, "norekNotaris") != MaskedValue {
-		t.Fatalf("sensitive field must be masked, got %q", strAttr(s, "norekNotaris"))
+	if strAttr(s, "password") != MaskedValue {
+		t.Fatalf("credential must be masked, got %q", strAttr(s, "password"))
+	}
+	if strAttr(s, "norekNotaris") != "0101" {
+		t.Fatalf("user data must be kept, got %q", strAttr(s, "norekNotaris"))
 	}
 	if strAttr(s, "empty") != "" || strAttr(s, "nil") != "" {
 		t.Fatalf("empty/nil fields must be skipped: %v", s.Attributes())

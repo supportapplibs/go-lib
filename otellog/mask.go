@@ -13,24 +13,28 @@ import (
 const MaskedValue = "***"
 
 // Aturan pencocokan dilakukan pada key yang sudah dinormalisasi: lowercase dan
-// tanpa '_', '-', '.', spasi. Contoh: "nik_debitur", "nikDebitur", "NIK-Debitur" → "nikdebitur".
+// tanpa '_', '-', '.', spasi. Contoh: "access_token", "accessToken", "Access-Token" → "accesstoken".
+//
+// Default HANYA mencakup kredensial/rahasia (password, token, authorization, apikey,
+// secret, signature, pin, otp, cvv, nomor kartu). Data pengguna/nasabah (nama, NIK,
+// KTP, rekening, dll.) sengaja TIDAK di-mask; tambahkan key domain tertentu lewat
+// RegisterSensitiveKeys bila memang perlu.
 var (
 	maskMu sync.RWMutex
 
 	// sensitiveExact: key harus sama persis. Untuk kata pendek yang rawan
 	// false positive bila dicocokkan sebagai substring (mis. "pin" ⊂ "pinjaman").
 	sensitiveExact = map[string]struct{}{
-		"pin": {}, "mpin": {}, "cvv": {}, "cvc": {}, "otp": {}, "nik": {}, "ktp": {}, "noktp": {}, "npwp": {},
+		"pin": {}, "mpin": {}, "cvv": {}, "cvc": {}, "otp": {},
 	}
 
-	// sensitivePrefix: key diawali salah satu nilai ini (mis. "nikDebitur", "norekNotaris").
-	sensitivePrefix = []string{"nik", "norek", "otp"}
+	// sensitivePrefix: key diawali salah satu nilai ini (mis. "otpCode").
+	sensitivePrefix = []string{"otp"}
 
 	// sensitiveContains: key mengandung salah satu nilai ini.
 	sensitiveContains = []string{
 		"password", "passwd", "secret", "token", "apikey", "authorization",
-		"signature", "credential", "privatekey", "cardnumber", "accountnumber",
-		"nomorrekening", "norekening", "pinblock",
+		"signature", "credential", "privatekey", "cardnumber", "pinblock",
 	}
 )
 

@@ -108,7 +108,7 @@ func TestServerMiddleware_TrustedIncomingTraceAndMaskedActivity(t *testing.T) {
 	ctx = newCtx(t, fakeReq{
 		method: "POST", path: "/v1/order/123", headers: incomingHeaders(), status: 200,
 		body: map[string]any{"username": "budi", "password": "rahasia", "nik": "3201"},
-		resp: `{"responseCode":"00","data":{"norekNotaris":"0101"}}`,
+		resp: `{"responseCode":"00","data":{"norekNotaris":"0101","accessToken":"tok123"}}`,
 		next: func() { spanInHandler = trace.SpanFromContext(GoContext(ctx)) },
 	})
 
@@ -137,14 +137,17 @@ func TestServerMiddleware_TrustedIncomingTraceAndMaskedActivity(t *testing.T) {
 	if a["trace.id"] != incomingTraceID {
 		t.Fatalf("activity log missing trace.id: %v", a["trace.id"])
 	}
-	if strings.Contains(a["requestBody"], "rahasia") || strings.Contains(a["requestBody"], "3201") {
-		t.Fatalf("requestBody not masked: %s", a["requestBody"])
+	if strings.Contains(a["requestBody"], "rahasia") {
+		t.Fatalf("requestBody credential not masked: %s", a["requestBody"])
+	}
+	if !strings.Contains(a["requestBody"], `"nik":"3201"`) {
+		t.Fatalf("user data (nik) must be kept: %s", a["requestBody"])
 	}
 	if !strings.Contains(a["requestBody"], `"username":"budi"`) {
 		t.Fatalf("non-sensitive field lost: %s", a["requestBody"])
 	}
-	if strings.Contains(a["responseBody"], "0101") {
-		t.Fatalf("responseBody not masked: %s", a["responseBody"])
+	if strings.Contains(a["responseBody"], "tok123") || !strings.Contains(a["responseBody"], "0101") {
+		t.Fatalf("responseBody: credential masked, user data kept: %s", a["responseBody"])
 	}
 	if a["responseCode"] != "00" || a["httpCode"] != "200" {
 		t.Fatalf("unexpected responseCode/httpCode: %v / %v", a["responseCode"], a["httpCode"])
@@ -240,7 +243,7 @@ func TestServerMiddleware_BodyFieldsOnSpanActivityAndHandlerLogs(t *testing.T) {
 			"refnoOrder":     "PL-9", // = trx_order_notaris.refno
 			"refno_prakarsa": "PR-3",
 			"orderId":        12345,
-			"nik":            "3201",
+			"password":       "rahasia",
 			"list":           []any{"x"}, // non-skalar → dilewati
 		},
 		resp: `{"responseCode":"00"}`,
@@ -249,7 +252,7 @@ func TestServerMiddleware_BodyFieldsOnSpanActivityAndHandlerLogs(t *testing.T) {
 
 	ServerMiddleware(WithBodyFields(
 		"refno", "refnoPrakarsa:refno_prakarsa", "refnoOrder:refno_order",
-		"orderId:order_id", "nik", "list", "missing",
+		"orderId:order_id", "password", "list", "missing",
 	))(ctx)
 
 	spans := exp.reset()
@@ -264,7 +267,7 @@ func TestServerMiddleware_BodyFieldsOnSpanActivityAndHandlerLogs(t *testing.T) {
 			t.Errorf("span attr %s = %q, want %q", k, got, want)
 		}
 	}
-	for _, k := range []string{"nik", "list", "missing"} {
+	for _, k := range []string{"password", "list", "missing"} {
 		if strAttr(s, k) != "" {
 			t.Errorf("span attr %s must not be set", k)
 		}
