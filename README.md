@@ -13,3 +13,6 @@ Currently, pkg that are already considered has stable API are
   - `activity monitor`: capture and log all incoming & outgoing http request/response. Can properly record request body with content-type `application/json`, `application/x-www-form-urlencoded` & `multipart/form-data`
   - `metadata header`: set `http.Context` with metadata information coming from the request header
   - `recover`: do recover on panic that occur during processing request in `Goravel` with properly giving back appropriate `stdresp`
+
+Observability (OpenTelemetry)
+- `oteltelemetry`, `otellog`, `otelmetric`, `oteljob`: trace + log + metric untuk service Goravel. Panduan implementasi lengkap (provider, middleware, usecase/repository, job, masking, penamaan span): [OTEL_GUIDE.md](OTEL_GUIDE.md). Daftar pekerjaan: [OTEL_IMPROVEMENT_CHECKLIST.md](OTEL_IMPROVEMENT_CHECKLIST.md)
