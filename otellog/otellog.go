@@ -20,6 +20,7 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+	"gorm.io/gorm"
 )
 
 const spanKey = "otelSpan"
@@ -170,6 +171,9 @@ func Activity(ctx goravelhttp.Context, m golib.Map) {
 //	    ...
 //	}
 //
+// Error bisnis stderr (kode 01, 02, 03, 05, X0, X1) tidak dicatat sebagai error
+// (tanpa RecordError, status Error, dan log Error); error sistem tetap dicatat.
+//
 // fields opsional: dipasang sebagai attribute span dan digabung ke setiap log
 // yang memakai ctx hasil kembalian (termasuk log error dari done), mis.
 // log.Map{"refno": req.Refno}. Nilai sensitif di-mask, nilai kosong dilewati.
@@ -205,7 +209,7 @@ func traceFunc(ctx context.Context, name string, fields []golib.Map) (context.Co
 
 	return ctx, func(errPtr *error) {
 		defer span.End()
-		if errPtr != nil && *errPtr != nil {
+		if errPtr != nil && shouldRecordError(*errPtr) {
 			markSpanError(span, *errPtr)
 			RuntimeCtx(ctx).Error(golib.Map{"msg": name + ": error", "error": (*errPtr).Error()})
 		}
@@ -221,6 +225,9 @@ func traceFunc(ctx context.Context, name string, fields []golib.Map) (context.Co
 //	    defer done(&err)
 //	    ...
 //	}
+//
+// gorm.ErrRecordNotFound (termasuk yang dibungkus %w) tidak dicatat sebagai
+// error; span diberi attribute db.result="not_found".
 func TraceDB(ctx context.Context, table, operation string) (context.Context, func(*error)) {
 	return traceDB(ctx, "db."+table+"."+operation, table, operation)
 }
@@ -248,8 +255,14 @@ func traceDB(ctx context.Context, name, table, operation string) (context.Contex
 
 	return ctx, func(errPtr *error) {
 		defer span.End()
-		if errPtr != nil && *errPtr != nil {
+		if errPtr == nil || *errPtr == nil {
+			return
+		}
+		if shouldRecordDBError(*errPtr) {
 			markSpanError(span, *errPtr)
+		} else if errors.Is(*errPtr, gorm.ErrRecordNotFound) {
+			// hasil normal: tetap terlihat di span tanpa menjadi error
+			span.SetAttributes(attribute.String("db.result", "not_found"))
 		}
 	}
 }

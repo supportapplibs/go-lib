@@ -1,0 +1,47 @@
+package otellog
+
+import (
+	"errors"
+
+	"github.com/supportapplibs/go-lib/stderr"
+	"gorm.io/gorm"
+)
+
+// ignoredBusinessErrorCodes adalah kode stderr yang merupakan hasil normal
+// proses bisnis (validasi, data tidak ada, rule, header, permission, waiting), bukan
+// kegagalan sistem. Error dengan kode ini tidak dicatat sebagai error di span
+// maupun log, supaya error rate di APM tidak berisik. Kode 05 (masih menunggu
+// proses background) juga termasuk hasil normal. Kode lain (04, 06, 99) dan
+// error non-stderr tetap dicatat.
+var ignoredBusinessErrorCodes = map[string]struct{}{
+	stderr.ERROR_CODE_PARAMETER:         {},
+	stderr.ERROR_CODE_DATA_NOT_FOUND:    {},
+	stderr.ERROR_CODE_INVALID_RULE:      {},
+	stderr.ERROR_CODE_INVALID_HEADER:    {},
+	stderr.ERROR_CODE_ACCESS_PERMISSION: {},
+	stderr.ERROR_CODE_WAITING_STATUS:    {},
+}
+
+// shouldRecordError menentukan apakah err dicatat sebagai error (RecordError,
+// status Error, log Error) oleh TraceFunc/Trace. false untuk nil dan error
+// bisnis stderr; true untuk error sistem dan error non-stderr.
+func shouldRecordError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if stderr.IsStdError(err) {
+		_, ignored := ignoredBusinessErrorCodes[stderr.GetCode(err)]
+		return !ignored
+	}
+	return true
+}
+
+// shouldRecordDBError sama dengan shouldRecordError untuk span DB, ditambah
+// gorm.ErrRecordNotFound (termasuk yang dibungkus %w) yang dianggap hasil
+// normal. Error DB lain (koneksi, syntax, constraint, timeout) tetap dicatat.
+func shouldRecordDBError(err error) bool {
+	if err == nil || errors.Is(err, gorm.ErrRecordNotFound) {
+		return false
+	}
+	return shouldRecordError(err)
+}
