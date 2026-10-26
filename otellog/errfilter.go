@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/supportapplibs/go-lib/stderr"
+	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 )
 
@@ -44,4 +45,19 @@ func shouldRecordDBError(err error) bool {
 		return false
 	}
 	return shouldRecordError(err)
+}
+
+// RecordSpanError mencatat err pada span yang dibuat manual (mis. span
+// controller dari tracer.Start) dengan aturan yang sama seperti TraceFunc:
+// error bisnis stderr dan gorm.ErrRecordNotFound dilewati, error sistem
+// dicatat (RecordError + status Error). Pengganti span.RecordError(err):
+//
+//	if err != nil {
+//	    otellog.RecordSpanError(span, err)
+//	    return RespondError(ctx, err)
+//	}
+func RecordSpanError(span trace.Span, err error) {
+	if shouldRecordDBError(err) {
+		markSpanError(span, err)
+	}
 }

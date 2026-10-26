@@ -1,11 +1,13 @@
 package otellog
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/supportapplibs/go-lib/stderr"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"gorm.io/gorm"
 )
@@ -184,5 +186,36 @@ func TestTraceDone_NilErrorPointers(t *testing.T) {
 	}
 	if recs := logExp.reset(); len(recs) != 0 {
 		t.Fatalf("expected no log, got %d", len(recs))
+	}
+}
+
+func TestRecordSpanError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"not found", stderr.ErrNotFound("x"), false},
+		{"waiting", stderr.ErrWaiting("x"), false},
+		{"gorm not found", fmt.Errorf("w: %w", gorm.ErrRecordNotFound), false},
+		{"runtime", stderr.ErrRuntime("x"), true},
+		{"raw", errors.New("boom"), true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			exp.reset()
+			_, span := otel.Tracer("test").Start(context.Background(), "manual")
+			RecordSpanError(span, tc.err)
+			span.End()
+
+			spans := exp.reset()
+			if len(spans) != 1 {
+				t.Fatalf("expected 1 span, got %d", len(spans))
+			}
+			if got := len(spans[0].Events()) == 1 && spans[0].Status().Code == codes.Error; got != tc.want {
+				t.Fatalf("recorded = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
