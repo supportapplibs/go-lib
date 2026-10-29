@@ -3,9 +3,11 @@ package otellog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
+	"github.com/redis/go-redis/v9"
 	golib "github.com/supportapplibs/go-lib/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -372,5 +374,57 @@ func TestTraceDB_NoDBSystemWhenUnknown(t *testing.T) {
 	spans := exp.reset()
 	if len(spans) != 1 || strAttr(spans[0], "db.system") != "" {
 		t.Fatalf("db.system must be omitted when undetermined: %+v", spans)
+	}
+}
+
+func TestTraceRedis_SetsDBSystemAndName(t *testing.T) {
+	exp.reset()
+	func() (err error) {
+		_, done := TraceRedis(offCtx(), "GET")
+		defer done(&err)
+		return nil
+	}()
+	spans := exp.reset()
+	if len(spans) != 1 || spans[0].Name() != "redis.GET" ||
+		strAttr(spans[0], "db.system") != "redis" || strAttr(spans[0], "db.operation") != "GET" {
+		t.Fatalf("redis span wrong: %+v", spans)
+	}
+}
+
+func TestTraceRedisAuto_NameFromCaller(t *testing.T) {
+	exp.reset()
+	func() (err error) {
+		_, done := TraceRedisAuto(offCtx(), "SET")
+		defer done(&err)
+		return nil
+	}()
+	spans := exp.reset()
+	if len(spans) != 1 || spans[0].Name() == "" || strAttr(spans[0], "db.system") != "redis" {
+		t.Fatalf("auto redis span wrong: %+v", spans)
+	}
+}
+
+func TestTraceRedis_NilNotRecordedOtherRecorded(t *testing.T) {
+	exp.reset()
+	func() (err error) {
+		_, done := TraceRedis(offCtx(), "GET")
+		err = fmt.Errorf("get session: %w", redis.Nil)
+		defer done(&err)
+		return err
+	}()
+	spans := exp.reset()
+	if len(spans) != 1 || spans[0].Status().Code == codes.Error || strAttr(spans[0], "db.result") != "not_found" {
+		t.Fatalf("redis.Nil must be a normal result: %+v", spans)
+	}
+
+	func() (err error) {
+		_, done := TraceRedis(offCtx(), "GET")
+		err = errors.New("dial tcp: connection refused")
+		defer done(&err)
+		return err
+	}()
+	spans = exp.reset()
+	if len(spans) != 1 || spans[0].Status().Code != codes.Error {
+		t.Fatalf("other redis errors must be recorded: %+v", spans)
 	}
 }

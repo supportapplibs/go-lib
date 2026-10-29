@@ -20,7 +20,6 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
-	"gorm.io/gorm"
 )
 
 const spanKey = "otelSpan"
@@ -244,13 +243,51 @@ func TraceDBAuto(ctx context.Context, table, operation string) (context.Context,
 }
 
 func traceDB(ctx context.Context, name, table, operation string) (context.Context, func(*error)) {
-	ctx, span := otel.Tracer(os.Getenv("APP_NAME")).Start(ctx, name,
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
+	return startDBSpan(ctx, name,
+		append([]attribute.KeyValue{
 			attribute.String("db.table", table),
 			attribute.String("db.operation", operation),
-		),
-		trace.WithAttributes(dbSystemAttrs()...),
+		}, dbSystemAttrs()...))
+}
+
+// TraceRedis membuat span Redis (kind CLIENT, db.system="redis") bernama
+// "redis.<operation>". Untuk nama otomatis "<Repository>.<Func>" pakai
+// TraceRedisAuto. operation adalah perintah Redis, mis. "GET", "SET", "DEL".
+// Gunakan dengan named return error dan defer:
+//
+//	func (r *sessionRepo) GetSession(ctx context.Context, ...) (res *Session, err error) {
+//	    ctx, done := otellog.TraceRedis(ctx, "GET")
+//	    defer done(&err)
+//	    ...
+//	}
+//
+// redis.Nil (key tidak ada) tidak dicatat sebagai error; span diberi attribute
+// db.result="not_found". Error Redis lain (koneksi, timeout) tetap dicatat.
+func TraceRedis(ctx context.Context, operation string) (context.Context, func(*error)) {
+	return traceRedis(ctx, "redis."+operation, operation)
+}
+
+// TraceRedisAuto sama dengan TraceRedis, tetapi nama span diambil otomatis dari
+// fungsi pemanggil, mis. (*sessionRepo).GetSession → "SessionRepo.GetSession".
+// Perintah Redis tersimpan sebagai attribute db.operation.
+//
+//	ctx, done := otellog.TraceRedisAuto(ctx, "GET")
+//	defer done(&err)
+func TraceRedisAuto(ctx context.Context, operation string) (context.Context, func(*error)) {
+	return traceRedis(ctx, funcname.Caller(1), operation)
+}
+
+func traceRedis(ctx context.Context, name, operation string) (context.Context, func(*error)) {
+	return startDBSpan(ctx, name, []attribute.KeyValue{
+		attribute.String("db.system", "redis"),
+		attribute.String("db.operation", operation),
+	})
+}
+
+func startDBSpan(ctx context.Context, name string, attrs []attribute.KeyValue) (context.Context, func(*error)) {
+	ctx, span := otel.Tracer(os.Getenv("APP_NAME")).Start(ctx, name,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attrs...),
 	)
 
 	return ctx, func(errPtr *error) {
@@ -260,7 +297,7 @@ func traceDB(ctx context.Context, name, table, operation string) (context.Contex
 		}
 		if shouldRecordDBError(*errPtr) {
 			markSpanError(span, *errPtr)
-		} else if errors.Is(*errPtr, gorm.ErrRecordNotFound) {
+		} else if isNotFound(*errPtr) {
 			// hasil normal: tetap terlihat di span tanpa menjadi error
 			span.SetAttributes(attribute.String("db.result", "not_found"))
 		}

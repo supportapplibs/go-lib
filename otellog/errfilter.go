@@ -3,6 +3,7 @@ package otellog
 import (
 	"errors"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/supportapplibs/go-lib/stderr"
 	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
@@ -37,11 +38,18 @@ func shouldRecordError(err error) bool {
 	return true
 }
 
-// shouldRecordDBError sama dengan shouldRecordError untuk span DB, ditambah
-// gorm.ErrRecordNotFound (termasuk yang dibungkus %w) yang dianggap hasil
-// normal. Error DB lain (koneksi, syntax, constraint, timeout) tetap dicatat.
+// isNotFound true untuk gorm.ErrRecordNotFound dan redis.Nil (termasuk yang
+// dibungkus %w): hasil normal lookup, bukan kegagalan sistem.
+func isNotFound(err error) bool {
+	return errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, redis.Nil)
+}
+
+// shouldRecordDBError sama dengan shouldRecordError untuk span DB/Redis,
+// ditambah gorm.ErrRecordNotFound dan redis.Nil (termasuk yang dibungkus %w)
+// yang dianggap hasil normal. Error lain (koneksi, syntax, constraint, timeout)
+// tetap dicatat.
 func shouldRecordDBError(err error) bool {
-	if err == nil || errors.Is(err, gorm.ErrRecordNotFound) {
+	if err == nil || isNotFound(err) {
 		return false
 	}
 	return shouldRecordError(err)
