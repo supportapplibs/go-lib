@@ -284,3 +284,55 @@ func TestServerMiddleware_BodyFieldsOnSpanActivityAndHandlerLogs(t *testing.T) {
 		}
 	}
 }
+
+func TestServerMiddleware_RequestUserOnSpanActivityAndHandlerLogs(t *testing.T) {
+	exp.reset()
+	logExp.reset()
+
+	h := nethttp.Header{}
+	h.Set("X-Request-User", "12345678")
+
+	var ctx *mockhttp.Context
+	ctx = newCtx(t, fakeReq{
+		method: "GET", path: "/v1/order", headers: h, status: 200,
+		resp: `{"responseCode":"00"}`,
+		next: func() { RuntimeCtx(GoContext(ctx)).Info(map[string]any{"msg": "in handler"}) },
+	})
+
+	ServerMiddleware()(ctx)
+
+	spans := exp.reset()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	if got := strAttr(spans[0], "requestUser"); got != "12345678" {
+		t.Errorf("span attr requestUser = %q, want %q", got, "12345678")
+	}
+
+	recs := logExp.reset()
+	if len(recs) != 2 {
+		t.Fatalf("expected handler log + activity log, got %d", len(recs))
+	}
+	for _, r := range recs {
+		if a := attrs(r); a["requestUser"] != "12345678" {
+			t.Errorf("log %q requestUser = %q, want %q", a["msg"], a["requestUser"], "12345678")
+		}
+	}
+}
+
+func TestServerMiddleware_RequestUserHeaderMissingSkipsAttribute(t *testing.T) {
+	exp.reset()
+	ctx := newCtx(t, fakeReq{method: "GET", path: "/v1/order", status: 200})
+
+	ServerMiddleware(WithActivityLog(false))(ctx)
+
+	spans := exp.reset()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	for _, kv := range spans[0].Attributes() {
+		if string(kv.Key) == "requestUser" {
+			t.Fatalf("requestUser must not be set when header is empty, got %q", kv.Value.AsString())
+		}
+	}
+}

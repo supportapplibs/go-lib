@@ -142,6 +142,9 @@ func ServerMiddleware(opts ...MiddlewareOption) goravelhttp.Middleware {
 		if len(cfg.bodyFields) > 0 {
 			goCtx = AddFields(goCtx, extractBodyFields(req.All(), cfg.bodyFields))
 		}
+		// requestUser jadi attribute span SERVER dan request field (ikut ke log/span turunan),
+		// supaya bisa dicari di Kibana APM. Header kosong dilewati oleh AddFields.
+		goCtx = AddFields(goCtx, golib.Map{"requestUser": req.Header("X-Request-User", "")})
 		ctx.WithValue(spanKey, span)
 		ctx.WithValue(otelContextKey, goCtx)
 
@@ -191,16 +194,13 @@ func emitActivity(ctx goravelhttp.Context, cfg *middlewareConfig, start time.Tim
 	respBody := responseBody(ctx)
 	Activity(ctx, golib.Map{
 		"msg":          fmt.Sprintf("HTTP %s %s", req.Method(), req.Path()),
-		"app_name":     os.Getenv("APP_NAME"),
 		"host":         req.Host(),
 		"path":         req.Path(),
-		"identifier":   req.Path(),
 		"clientip":     req.Header("X-Forwarded-For", req.Ip()),
 		"clientapp":    req.Header("X-App", ""),
 		"requestID":    req.Header("X-Request-ID", ""),
 		"requestFrom":  req.Header("X-Request-From", ""),
 		"requestUser":  req.Header("X-Request-User", ""),
-		"requestNip":   req.Header("X-Request-Nip", ""),
 		"deviceID":     req.Header("X-Device-ID", ""),
 		"requestAt":    start.Format(time.RFC3339Nano),
 		"requestBody":  requestBody(ctx, cfg.maxBodyBytes),
