@@ -73,7 +73,17 @@ type SurroundingLogResponse struct {
 	Body     any `json:"body"`
 }
 
+// Call mengirim request ke pihak eksternal. Selain activity log (file), setiap call
+// dibungkus span CLIENT dan request/response aslinya dikirim sebagai log OTEL,
+// lihat traceExternalCall.
 func (h *httpClientExternal) Call(requestCtx context.Context, req *http.Request, timeouts ...time.Duration) (HTTPResponse, error) {
+	done := traceExternalCall(requestCtx, req)
+	resp, err := h.call(requestCtx, req, timeouts...)
+	done(resp, err)
+	return resp, err
+}
+
+func (h *httpClientExternal) call(requestCtx context.Context, req *http.Request, timeouts ...time.Duration) (HTTPResponse, error) {
 	// Init
 	startTime := time.Now()
 	metadata := ctx.Get(req.Context())
