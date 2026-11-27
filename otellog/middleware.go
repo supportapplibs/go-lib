@@ -50,7 +50,8 @@ func WithSkipPaths(paths ...string) MiddlewareOption {
 }
 
 // WithMaxBodyBytes batas ukuran requestBody/responseBody di activity log
-// (setelah masking). Default 10000 byte.
+// (setelah masking). Default 0 = tidak dipotong; body di atas maxMaskParseBytes
+// (4 MiB) tetap diganti "[omitted: body too large]".
 func WithMaxBodyBytes(n int) MiddlewareOption {
 	return func(c *middlewareConfig) { c.maxBodyBytes = n }
 }
@@ -104,7 +105,7 @@ func ServerMiddleware(opts ...MiddlewareOption) goravelhttp.Middleware {
 	cfg := &middlewareConfig{
 		trustIncoming: true,
 		skipPaths:     map[string]struct{}{"/ping": {}, "/favicon.ico": {}},
-		maxBodyBytes:  10000,
+		maxBodyBytes:  0,
 		activityLog:   true,
 		metrics:       true,
 	}
@@ -219,6 +220,9 @@ func requestBody(ctx goravelhttp.Context, maxBytes int) string {
 	b, err := json.Marshal(MaskValue(all))
 	if err != nil {
 		return ""
+	}
+	if len(b) > maxMaskParseBytes {
+		return omittedBodyTooLarge
 	}
 	return truncate(string(b), maxBytes)
 }

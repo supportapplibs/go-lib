@@ -22,7 +22,7 @@ import (
 
 // externalLogMaxBodyBytes batas requestBody/responseBody pada log external call di
 // OTEL. 0 = tidak dipotong, supaya response asli pihak eksternal tercatat utuh.
-// Batas efektifnya ada di otellog.MaskJSON: body di atas 1 MiB tidak di-parse dan
+// Batas efektifnya ada di otellog.MaskJSON: body di atas 4 MiB tidak di-parse dan
 // diganti "[omitted: body too large]" (tidak bisa di-mask dengan aman).
 const externalLogMaxBodyBytes = 0
 

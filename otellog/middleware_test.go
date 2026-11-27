@@ -336,3 +336,59 @@ func TestServerMiddleware_RequestUserHeaderMissingSkipsAttribute(t *testing.T) {
 		}
 	}
 }
+
+// Default tanpa WithMaxBodyBytes tidak memotong body; body di atas maxMaskParseBytes
+// (4 MiB) diganti penanda omitted, baik request maupun response.
+func TestServerMiddleware_DefaultBodyLimit(t *testing.T) {
+	large := strings.Repeat("x", 200_000) // jauh di atas batas lama 10000 byte
+	huge := strings.Repeat("y", maxMaskParseBytes+1)
+
+	cases := []struct {
+		name               string
+		reqField, respData string
+		wantReqOmitted     bool
+		wantRespOmitted    bool
+	}{
+		{name: "large body kept intact", reqField: large, respData: large},
+		{name: "body above 4 MiB omitted", reqField: huge, respData: huge, wantReqOmitted: true, wantRespOmitted: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exp.reset()
+			logExp.reset()
+			// key terurut, karena MaskJSON me-marshal ulang JSON (urutan key map)
+			resp := `{"data":"` + tc.respData + `","responseCode":"00"}`
+			ctx := newCtx(t, fakeReq{
+				method: "POST", path: "/v1/upload", status: 200,
+				body: map[string]any{"payload": tc.reqField},
+				resp: resp,
+			})
+
+			ServerMiddleware()(ctx)
+
+			recs := logExp.reset()
+			if len(recs) != 1 {
+				t.Fatalf("expected 1 activity log, got %d", len(recs))
+			}
+			a := attrs(recs[0])
+			for _, c := range []struct {
+				field, got string
+				omitted    bool
+				want       string
+			}{
+				{"requestBody", a["requestBody"], tc.wantReqOmitted, `{"payload":"` + tc.reqField + `"}`},
+				{"responseBody", a["responseBody"], tc.wantRespOmitted, resp},
+			} {
+				if c.omitted {
+					if c.got != omittedBodyTooLarge {
+						t.Fatalf("%s: expected omitted marker, got %d bytes", c.field, len(c.got))
+					}
+					continue
+				}
+				if c.got != c.want {
+					t.Fatalf("%s truncated/changed: got %d bytes, want %d", c.field, len(c.got), len(c.want))
+				}
+			}
+		})
+	}
+}

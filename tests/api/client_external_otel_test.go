@@ -177,7 +177,7 @@ func TestHTTPClientExternal_Call_ConnectionErrorEmitsErrorLog(t *testing.T) {
 func TestHTTPClientExternal_Call_OtelLogKeepsLargeBodyIntact(t *testing.T) {
 	_, capture := setupOtel(t)
 
-	// jauh di atas batas lama (10.000 byte), masih di bawah batas parse MaskJSON (1 MiB)
+	// jauh di atas batas lama (10.000 byte), masih di bawah batas parse MaskJSON (4 MiB)
 	largeBody := `{"responseCode":"00","data":"` + strings.Repeat("x", 200_000) + `"}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(largeBody))

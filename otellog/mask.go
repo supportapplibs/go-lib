@@ -108,7 +108,10 @@ func MaskValue(v any) any {
 
 // maxMaskParseBytes: body lebih besar dari ini tidak di-parse (hemat CPU) dan
 // tidak dikirim sama sekali — lebih aman daripada mengirim body besar tanpa masking.
-const maxMaskParseBytes = 1 << 20 // 1 MiB
+const maxMaskParseBytes = 4 << 20 // 4 MiB
+
+// omittedBodyTooLarge pengganti body yang melebihi maxMaskParseBytes.
+const omittedBodyTooLarge = "[omitted: body too large]"
 
 // MaskJSON mem-parse body JSON, me-mask field sensitif, lalu memotong hasilnya ke
 // maxBytes (0 = tanpa batas). Body non-JSON dikembalikan apa adanya (terpotong),
@@ -118,7 +121,7 @@ func MaskJSON(body []byte, maxBytes int) string {
 		return ""
 	}
 	if len(body) > maxMaskParseBytes {
-		return "[omitted: body too large]"
+		return omittedBodyTooLarge
 	}
 	var parsed any
 	if err := json.Unmarshal(body, &parsed); err == nil {
