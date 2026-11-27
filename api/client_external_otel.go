@@ -3,10 +3,12 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	goravelhttp "github.com/goravel/framework/contracts/http"
@@ -18,9 +20,11 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// externalLogMaxBodyBytes batas requestBody/responseBody (setelah masking) pada log
-// external call di OTEL. Sama dengan default otellog.ServerMiddleware.
-const externalLogMaxBodyBytes = 10000
+// externalLogMaxBodyBytes batas requestBody/responseBody pada log external call di
+// OTEL. 0 = tidak dipotong, supaya response asli pihak eksternal tercatat utuh.
+// Batas efektifnya ada di otellog.MaskJSON: body di atas 1 MiB tidak di-parse dan
+// diganti "[omitted: body too large]" (tidak bisa di-mask dengan aman).
+const externalLogMaxBodyBytes = 0
 
 // traceExternalCall membuka span CLIENT "<METHOD> <host><path>" untuk satu call
 // eksternal dan mengembalikan fungsi penutup yang mengirim log OTEL berisi
@@ -30,9 +34,9 @@ const externalLogMaxBodyBytes = 10000
 // (diisi otellog.ServerMiddleware), selain itu dari requestCtx itu sendiri. Span
 // sengaja TIDAK di-inject ke header req, supaya request ke pihak ketiga tidak berubah.
 //
-// Log hanya dikirim ke OTEL (file activity log sudah ditulis call). Body di-mask
-// (field sensitif) dan dipotong externalLogMaxBodyBytes; header tidak dicatat karena
-// memuat kredensial (Authorization, API key).
+// Log hanya dikirim ke OTEL (file activity log sudah ditulis call). Header dan body
+// request/response ikut dicatat; nilai sensitif di-mask (Authorization, API key,
+// token, cookie, dll., lihat maskHeaders); body tidak dipotong (lihat externalLogMaxBodyBytes).
 func traceExternalCall(requestCtx context.Context, req *http.Request) func(HTTPResponse, error) {
 	// Dicatat sebelum call: call bisa mengganti req.URL saat mock aktif (non-prod).
 	method, host, path := req.Method, req.URL.Host, req.URL.Path
@@ -54,7 +58,8 @@ func traceExternalCall(requestCtx context.Context, req *http.Request) func(HTTPR
 		} else if resp != nil {
 			span.SetAttributes(attribute.Int("http.status_code", resp.GetStatusCode()))
 		}
-		emitExternalCallLog(spanCtx, method, host, path, reqBody, resp, err, elapsed)
+		// Header request dibaca setelah call supaya header default dari call ikut tercatat.
+		emitExternalCallLog(spanCtx, method, host, path, req.Header, reqBody, resp, err, elapsed)
 		span.End()
 	}
 }
@@ -82,7 +87,38 @@ func readAndRestoreBody(req *http.Request) []byte {
 	return body
 }
 
-func emitExternalCallLog(spanCtx context.Context, method, host, path string, reqBody []byte, resp HTTPResponse, callErr error, elapsed time.Duration) {
+// maskHeaders mengubah header menjadi JSON dengan nilai sensitif di-mask. Selain key
+// yang dikenali otellog.IsSensitiveKey (authorization, apikey, token, secret, ...),
+// Cookie/Set-Cookie juga di-mask karena memuat session.
+func maskHeaders(h map[string]string) string {
+	if len(h) == 0 {
+		return ""
+	}
+	out := make(map[string]string, len(h))
+	for k, v := range h {
+		switch lk := strings.ToLower(k); {
+		case lk == "cookie" || lk == "set-cookie" || otellog.IsSensitiveKey(k):
+			out[k] = otellog.MaskedValue
+		default:
+			out[k] = v
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func flattenHeader(h http.Header) map[string]string {
+	out := make(map[string]string, len(h))
+	for k, v := range h {
+		out[k] = strings.Join(v, ",")
+	}
+	return out
+}
+
+func emitExternalCallLog(spanCtx context.Context, method, host, path string, reqHeader http.Header, reqBody []byte, resp HTTPResponse, callErr error, elapsed time.Duration) {
 	var r otellogapi.Record
 	r.SetTimestamp(time.Now())
 	r.SetSeverity(otellogapi.SeverityInfo)
@@ -94,6 +130,7 @@ func emitExternalCallLog(spanCtx context.Context, method, host, path string, req
 		attribute.String("method", method),
 		attribute.String("host", host),
 		attribute.String("url", path),
+		attribute.String("requestHeader", maskHeaders(flattenHeader(reqHeader))),
 		attribute.String("requestBody", otellog.MaskJSON(reqBody, externalLogMaxBodyBytes)),
 		attribute.Int64("responseTime", elapsed.Milliseconds()),
 	}
@@ -109,6 +146,7 @@ func emitExternalCallLog(spanCtx context.Context, method, host, path string, req
 	} else if resp != nil {
 		attrs = append(attrs,
 			attribute.Int("httpCode", resp.GetStatusCode()),
+			attribute.String("responseHeader", maskHeaders(resp.GetHeaders())),
 			attribute.String("responseBody", otellog.MaskJSON(resp.GetBody(), externalLogMaxBodyBytes)),
 		)
 	}
